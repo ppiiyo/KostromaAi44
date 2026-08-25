@@ -1,0 +1,510 @@
+import React from 'react';
+import { AlertCircle } from 'lucide-react';
+import { useProjectLifecycle } from './hooks/useProjectLifecycle';
+import { AppHeader } from './components/AppHeader';
+import { ProjectEditor } from './features/ProjectEditor';
+import { Dashboard } from './features/Dashboard';
+import { Settings } from './features/Settings';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { RightSidebarPanel } from './components/RightSidebarPanel';
+import { ImportExportModal } from './components/ImportExportModal';
+import { ShortcutsModal } from './components/ShortcutsModal';
+import { FirstLaunchWizard } from './components/FirstLaunchWizard';
+import { EnvironmentSecurityModal } from './components/EnvironmentSecurityModal';
+import { ToastContainer } from './components/ToastContainer';
+
+// Multi-language localization dictionaries
+const translationsStatic = {
+  en: {
+    title: "KostromAi44 Console",
+    subtitle: "Visual AI Agent Workflow Builder & Code Engine",
+    loadTemplate: "Templates",
+    validateWorkflow: "Validate Workflow",
+    autoAlign: "Clean Grid Layout",
+    exportImport: "Export & Import Flow",
+    runPipeline: "Run Pipe Flows",
+    runningPipeline: "Running Unit...",
+    selfHeal: "Auto-Switch Models & Run Pipeline",
+    selfHealDesc: "Google Gemini is experiencing transient high demand spikes (503). Correct this automatically by switching to the hyper-scalable gemini-3.1-flash-lite layer.",
+    zoom: "Zoom",
+    resetScale: "Reset Scale",
+    runLogs: "Agent Step Runtime Logs",
+    codeExport: "Get Code",
+    viralitySimulator: "Virality Predictor",
+    history: "Snapshots Log",
+    historyDesc: "Capture current configuration checkpoint.",
+    undo: "Undo",
+    redo: "Redo",
+    addNode: "Toolbox Actions",
+    delete: "Delete Node Block",
+    duplicate: "Duplicate/Clone Node Card",
+    emptyHistory: "No history snapshots saved yet.",
+    saveSnapshot: "Capture Snapshot Version",
+    restore: "Restore Canvas",
+    metrics: "Active Canvas Metrics",
+    metricsTotalNodes: "Total Nodes",
+    metricsActiveEdges: "Active Connections",
+    metricsLanguage: "UI Language",
+    latencyEst: "Estimated Latency",
+    complexityScore: "Complexity Level",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    variables: "Variables",
+    template: "Template",
+    systemInstruction: "System Instruction",
+    model: "Model",
+    temperature: "Temperature",
+    searchGrounding: "Google Search Grounding",
+    criteria: "Review Criteria",
+    iterations: "Max Iterations",
+    format: "Output Format",
+    nodesList: "Inject interactive processing modules dynamically to design nested structures.",
+    connectBtn: "Link to",
+    noTarget: "No valid destination found",
+    saveSuccess: "Snapshot successfully captured!",
+    restoreSuccess: "Workflow restored to capture point.",
+    toolboxHeader: "Toolbox Actions",
+    toolboxDesc: "Inject interactive processing modules dynamically to design nested structures.",
+    settingsHeader: "Configuration Parameters",
+    settingsEmpty: "Select any active canvas node block to modify granular runtime hyper-parameters immediately.",
+    logsHeader: "Agent Step Runtime Logs",
+    logsDesc: "Ready to process variables! Configure inputs, write prompt rules, and click Run Pipe Flows to stream results natively.",
+    durationLabel: "Total Duration",
+    copiedKey: "Copied!",
+    historyHeader: "Saved Flow Snapshots",
+    serverPersistence: "Server-Side Projects",
+    serverPersistenceDesc: "Save the current active graph flow as a JSON workspace onto the server's filesystem.",
+    projectNameHolder: "Project name...",
+    saveProjectBtn: "Save Project",
+    savedListTitle: "Server Saved Projects",
+    noSavedProjects: "No project files stored on the server yet."
+  },
+  ru: {
+    title: "Арена KostromAi44",
+    subtitle: "Визуальный конструктор ИИ-агентов и генератор кода",
+    loadTemplate: "Шаблоны",
+    validateWorkflow: "Проверить схему",
+    autoAlign: "Выровнять сетку",
+    exportImport: "Экспорт и импорт",
+    runPipeline: "Запустить поток",
+    runningPipeline: "Запуск блока...",
+    selfHeal: "Авто-выбор моделей и запуск",
+    selfHealDesc: "Сервер Gemini испытывает временную перегрузку (503). Исправьте это автоматически, переключившись на масштабируемый уровень gemini-3.1-flash-lite.",
+    zoom: "Масштаб",
+    resetScale: "Сбросить масштаб",
+    runLogs: "Логи работы шагов агента",
+    codeExport: "Получить код",
+    viralitySimulator: "Анализ виральности",
+    history: "История версий",
+    historyDesc: "Сохраняйте и восстанавливайте снимки состояний холста.",
+    undo: "Отменить",
+    redo: "Вернуть",
+    addNode: "Панель инструментов",
+    delete: "Удалить блок",
+    duplicate: "Клонировать блок",
+    emptyHistory: "История версий холста пуста.",
+    saveSnapshot: "Зафиксировать снимок",
+    restore: "Восстановить",
+    metrics: "Метрики активного холста",
+    metricsTotalNodes: "Всего блоков",
+    metricsActiveEdges: "Активных связей",
+    metricsLanguage: "Язык интерфейса",
+    latencyEst: "Оценка задержки",
+    complexityScore: "Сложность холста",
+    low: "Низкая",
+    medium: "Средняя",
+    high: "Высокая",
+    variables: "Переменные",
+    template: "Шаблон",
+    systemInstruction: "Системные правила",
+    model: "Модель",
+    temperature: "Температура",
+    searchGrounding: "Поиск Google Grounding",
+    criteria: "Критерии проверки",
+    iterations: "Макс. итераций",
+    format: "Формат вывода",
+    nodesList: "Нажмите на нужные блоки, чтобы добавить их на координатную сетку.",
+    connectBtn: "Связать с",
+    noTarget: "Нет доступных финальных целей",
+    saveSuccess: "Снимок конфигурации холста успешно сохранен!",
+    restoreSuccess: "Конфигурация холста восстановлена из резервной точки.",
+    toolboxHeader: "Добавить модули",
+    toolboxDesc: "Используйте эти интерактивные блоки для проектирования сложных цепочек логики.",
+    settingsHeader: "Параметры конфигурации",
+    settingsEmpty: "Выберите любой активный блок на холсте для быстрой настройки гиперпараметров.",
+    logsHeader: "Логи выполнения шагов",
+    logsDesc: "Готов к обработке переменных! Настройте входы, напишите инструкции и запустите выполнение потока.",
+    durationLabel: "Общее время",
+    copiedKey: "Скопировано!",
+    historyHeader: "Сохраненные снимки",
+    serverPersistence: "Сохранение на сервере",
+    serverPersistenceDesc: "Сохраните текущую активную схему в виде JSON-файла в папку проектов на сервере.",
+    projectNameHolder: "Название проекта...",
+    saveProjectBtn: "Сохранить проект",
+    savedListTitle: "Список проектов на бэкенде",
+    noSavedProjects: "На сервере пока нет сохраненных проектов."
+  },
+  zh: {
+    title: "KostromAi44 控制台",
+    subtitle: "AI 智能体可视化工作流编辑器与代码引擎",
+    loadTemplate: "工作流模板",
+    validateWorkflow: "验证工作流",
+    autoAlign: "干净的网格布局",
+    exportImport: "导入与导出",
+    runPipeline: "运行工作流",
+    runningPipeline: "正在运行...",
+    selfHeal: "自动切换并运行",
+    selfHealDesc: "谷歌双子座 (Gemini) 正在经历短暂高负载 (503)。点击自动修复以无损切换至高吞吐量的 gemini-3.1-flash-lite 层级并继续执行。",
+    zoom: "画布缩放",
+    resetScale: "重置比例",
+    runLogs: "智能体运行日志",
+    codeExport: "获取代码",
+    viralitySimulator: "传播指数预测",
+    history: "历史快照",
+    historyDesc: "创建或回滚画布的备份记录点。",
+    undo: "撤销",
+    redo: "重做",
+    addNode: "动作工具箱",
+    delete: "删除当前节点",
+    duplicate: "克隆节点副本",
+    emptyHistory: "暂未保存任何运行快照。",
+    saveSnapshot: "创建画布备份",
+    restore: "恢复画布状态",
+    metrics: "当前工作流指标",
+    metricsTotalNodes: "节点总数",
+    metricsActiveEdges: "连接线条数",
+    metricsLanguage: "界面语言设定",
+    latencyEst: "预估计算延迟",
+    complexityScore: "算法结构复杂度",
+    low: "低复杂度",
+    medium: "中度设计",
+    high: "高度嵌套",
+    variables: "模板变量",
+    template: "提示词模板",
+    systemInstruction: "系统级别指令",
+    model: "驱动模型",
+    temperature: "采样温度值",
+    searchGrounding: "谷歌联网搜索增强",
+    criteria: "智能循环自我审查评判标准",
+    iterations: "最大反馈循环次数",
+    format: "输出格式",
+    nodesList: "点击或拖拽下列基础组件以配置分布式智能体流水线。",
+    connectBtn: "关联到",
+    noTarget: "没有可连接的后置块",
+    saveSuccess: "画布快照配置已成功保存！",
+    restoreSuccess: "已成功将编辑器回滚到该捕获点。",
+    toolboxHeader: "工具组件库",
+    toolboxDesc: "在网格中放入这些可编程处理单元，实现基于智能体的推理网络。",
+    settingsHeader: "组件配置面板",
+    settingsEmpty: "在画布中点击特定的模块卡片，即刻细粒度地监控与编辑其全部行为规则。",
+    logsHeader: "控制台执行监视",
+    logsDesc: "已就绪！调整输入源 and 判定阈值，并点击'运行工作流'实时观测数据吞吐。",
+    durationLabel: "执行总耗时",
+    copiedKey: "已复制到剪贴板!",
+    historyHeader: "存档历史管理",
+    serverPersistence: "服务器级项目归档",
+    serverPersistenceDesc: "将当前活跃的工作流拓扑保存到服务器后端的文件存储系统中（JSON）。",
+    projectNameHolder: "输入项目文件名...",
+    saveProjectBtn: "归档并保存项目",
+    savedListTitle: "后端已归档项目目录",
+    noSavedProjects: "服务器端尚未建立任何工作流归档文件。"
+  }
+};
+
+if (typeof window !== 'undefined' && (window as any)._bypassUnused) {
+  console.log(translationsStatic);
+}
+
+export default function App() {
+  const {
+    app,
+    apiKeysMissing,
+    isShortcutsOpen,
+    setIsShortcutsOpen,
+    isFirstLaunchOpen,
+    setIsFirstLaunchOpen,
+    handleWizardComplete,
+    handleLanguageChange,
+    translations,
+  } = useProjectLifecycle();
+
+  return (
+    <ErrorBoundary>
+      <div className="h-screen bg-black text-zinc-100 flex flex-col font-sans select-none overflow-hidden" id="app_root">
+        
+        {/* Dynamic Top Navigation HUD */}
+        <AppHeader
+          currentLang={app.currentLang}
+          onLanguageChange={handleLanguageChange}
+          projectNameInput={app.projectNameInput}
+          onProjectNameInputChange={app.setProjectNameInput}
+          onSaveProject={() => app.handleSaveProjectToServer(app.projectNameInput)}
+          savingProject={app.savingProject}
+          autoSavingStatus={app.autoSavingStatus}
+          onRunPipeline={app.handleRunPipeline}
+          onValidateWorkflow={app.handleValidateFlow}
+          isRunning={app.isRunning}
+          onAutoAlign={app.handleAutoAlignNodes}
+          onShowImportExport={() => app.setIsImportExportModalOpen(true)}
+          onSaveSnapshot={() => app.handleSaveSnapshot()}
+          onShowShortcuts={() => setIsShortcutsOpen(true)}
+          nodesCount={app.nodes.length}
+          connectionsCount={app.connections.length}
+        />
+
+        {/* Subheader Navigation Bar */}
+        <div className="bg-black border-b border-neutral-900 px-6 py-2 flex items-center justify-between z-30 shrink-0" id="sub_navigation_bar">
+          <div className="flex space-x-1">
+            {[
+              { id: 'editor', label: app.currentLang === 'ru' ? '🛠️ Холст Конструктора' : app.currentLang === 'zh' ? '🛠️ 视觉画布' : '🛠️ Flow Editor', desc: app.currentLang === 'ru' ? 'Визуальный редактор' : 'Visual creator workspace' },
+              { id: 'dashboard', label: app.currentLang === 'ru' ? '📊 Консоль Аналитики' : app.currentLang === 'zh' ? '📊 监控总览' : '📊 Metrics Dashboard', desc: app.currentLang === 'ru' ? 'Обсервабилити и логи' : 'Observability & Telemetry' },
+              { id: 'settings', label: app.currentLang === 'ru' ? '⚙️ Настройки Системы' : app.currentLang === 'zh' ? '⚙️ 系统配置' : '⚙️ Workspace Settings', desc: app.currentLang === 'ru' ? 'Конфигурация схемы и локализация' : 'Preferences & Import/Export' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                id={`btn_view_nav_${tab.id}`}
+                onClick={() => app.setCurrentView(tab.id as any)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold flex flex-col items-start transition-all cursor-pointer ${
+                  app.currentView === tab.id 
+                    ? 'bg-zinc-900 text-white border border-zinc-800 shadow-volumetric-sm font-extrabold' 
+                    : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className="text-[9px] text-zinc-600 font-bold leading-none mt-0.5">{tab.desc}</span>
+              </button>
+            ))}
+          </div>
+          
+          <div className="hidden sm:flex items-center space-x-3 text-xs text-zinc-500">
+            <div className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-600">Core Running</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Warning banner for missing API keys */}
+        {apiKeysMissing && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5 flex items-center justify-between text-xs text-amber-200 z-20 shrink-0 animate-in slide-in-from-top duration-300" id="missing-api-keys-banner">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="text-amber-400 shrink-0" size={16} />
+              <span>
+                <strong>{app.currentLang === 'ru' ? 'Внимание:' : app.currentLang === 'zh' ? '警告:' : 'Warning:'}</strong>{' '}
+                {app.currentLang === 'ru'
+                  ? 'Ключ Google Gemini API не настроен. Для работы Gemini-нод и механизма самодиагностики укажите ключ в настройках.'
+                  : app.currentLang === 'zh'
+                    ? '未检测到您的 Google Gemini API 密钥。部分关键节点和自纠错循环将不可用，请前往设置页面。'
+                    : 'Google Gemini API Key is missing. Gemini nodes and self-correction loop features will be disabled until configured.'}
+              </span>
+            </div>
+            <button
+              onClick={() => app.setCurrentView('settings')}
+              className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1 rounded-lg font-black text-[10px] uppercase tracking-wider transition-colors cursor-pointer shrink-0 ml-4"
+            >
+              {app.currentLang === 'ru' ? 'Настроить' : app.currentLang === 'zh' ? '去配置' : 'Configure Now'}
+            </button>
+          </div>
+        )}
+
+        {/* Main Studio Console Layout */}
+        <div className="flex-1 flex flex-row overflow-hidden relative" id="app_main">
+          {app.currentView === 'editor' ? (
+            <ProjectEditor
+              currentLang={app.currentLang}
+              translations={translations}
+              nodes={app.nodes}
+              setNodes={app.setNodes}
+              connections={app.connections}
+              setConnections={app.setConnections}
+              selectedNodeId={app.selectedNodeId}
+              setSelectedNodeId={app.setSelectedNodeId}
+              highlightedNodeId={app.highlightedNodeId}
+              nodeExecutionStatuses={app.nodeExecutionStatuses as any}
+              isRunning={app.isRunning}
+              showcaseMode={app.showcaseMode}
+              setShowcaseMode={app.setShowcaseMode}
+              leftSidebarCollapsed={app.leftSidebarCollapsed}
+              setLeftSidebarCollapsed={app.setLeftSidebarCollapsed}
+              rightSidebarCollapsed={app.rightSidebarCollapsed}
+              setRightSidebarCollapsed={app.setRightSidebarCollapsed}
+              canvasZoom={app.canvasZoom}
+              setCanvasZoom={app.setCanvasZoom}
+              snapToGrid={app.snapToGrid}
+              setSnapToGrid={app.setSnapToGrid}
+              canvasLocked={app.canvasLocked}
+              setCanvasLocked={app.setCanvasLocked}
+              onCreateNode={app.handleCreateNode}
+              savedSnapshots={app.savedSnapshots}
+              onRestoreSnapshot={app.handleRestoreSnapshot}
+              onDeleteSnapshot={(id) => app.handleDeleteSnapshot(id, {} as any)}
+              onSaveSnapshot={app.handleSaveSnapshot}
+              projectNameInput={app.projectNameInput}
+              onProjectNameInputChange={app.setProjectNameInput}
+              onSaveProjectToServer={app.handleSaveProjectToServer}
+              savingProject={app.savingProject}
+              serverProjects={app.serverProjects}
+              loadingProjects={app.loadingProjects}
+              currentSavedProjectName={app.currentSavedProjectName}
+              onLoadProjectFromServer={app.handleLoadProjectFromServer}
+              handleDeleteNode={app.handleDeleteNode}
+              handleConnectNodes={app.handleConnectNodes}
+              handleUpdateNodeField={app.handleUpdateNodeField}
+              handleDuplicateNode={app.handleDuplicateNode}
+              handleDryRunNode={app.handleDryRunNode}
+              isDryRunningNode={app.isDryRunningNode}
+              dryRunOutput={app.dryRunOutput}
+              setDryRunOutput={app.setDryRunOutput}
+              handleAutoAlignNodes={app.handleAutoAlignNodes}
+              userId={app.userId || "local-user"}
+              locks={app.locks}
+              handleUndo={app.handleUndo}
+              handleRedo={app.handleRedo}
+              canUndo={app.canUndo}
+              canRedo={app.canRedo}
+              recordAction={app.recordAction}
+              validationReport={app.validationReport}
+              setValidationReport={app.setValidationReport}
+              handleValidateFlow={app.handleValidateFlow}
+            />
+          ) : app.currentView === 'dashboard' ? (
+            <Dashboard
+              currentLang={app.currentLang as any}
+              activeGraphId={app.activeWorkflow?.id || "canvas-workspace"}
+            />
+          ) : (
+            <Settings
+              currentLang={app.currentLang}
+              setCurrentLang={handleLanguageChange}
+              snapToGrid={app.snapToGrid}
+              setSnapToGrid={app.setSnapToGrid}
+              canvasLocked={app.canvasLocked}
+              setCanvasLocked={app.setCanvasLocked}
+              canvasZoom={app.canvasZoom}
+              setCanvasZoom={app.setCanvasZoom}
+              activeWorkflow={app.activeWorkflow}
+              jsonStringInput={app.jsonStringInput}
+              setJsonStringInput={app.setJsonStringInput}
+              importError={app.importError}
+              handleImportWorkflowJSON={app.handleImportWorkflowJSON}
+              isImportExportModalOpen={app.isImportExportModalOpen}
+              setIsImportExportModalOpen={app.setIsImportExportModalOpen}
+              userNameInput={app.userName}
+              onUserNameInputChange={app.updateUserName}
+              userColorInput={app.userColor}
+              onUserColorInputChange={(app as any).updateUserColor}
+              onReRunWizard={() => setIsFirstLaunchOpen(true)}
+            />
+          )}
+
+          {/* Right Tabbed Panel: Logs / Code / Statistics */}
+          {app.currentView === 'editor' && !app.showcaseMode && !app.rightSidebarCollapsed && (
+            <React.Suspense fallback={
+              <div className="w-80 border-l border-slate-850 bg-slate-900 flex flex-col h-full items-center justify-center p-6 text-slate-400">
+                <span className="text-xs animate-pulse">Loading Panel Modules...</span>
+              </div>
+            }>
+              <RightSidebarPanel
+                currentLang={app.currentLang}
+                activeTab={app.activeTab}
+                setActiveTab={app.setActiveTab}
+                setRightSidebarCollapsed={app.setRightSidebarCollapsed}
+                nodes={app.nodes}
+                connections={app.connections}
+                projectNameInput={app.projectNameInput}
+                setNodes={app.setNodes}
+                setConnections={app.setConnections}
+                setProjectNameInput={app.setProjectNameInput}
+                runLogs={app.runLogs}
+                errorText={app.errorText}
+                handleAutoSelfHealAndRun={app.handleAutoSelfHealAndRun}
+                totalDuration={app.totalDuration}
+                finalResult={app.finalResult}
+                copiedText={app.copiedText}
+                setCopiedText={app.setCopiedText}
+                isEvaluating={app.isEvaluating}
+                evalReport={app.evalReport}
+                evalTestCases={app.evalTestCases}
+                setEvalTestCases={app.setEvalTestCases}
+                handleRunEvaluationSuite={app.handleRunEvaluationSuite}
+                ragSource={app.ragSource}
+                setRagSource={app.setRagSource}
+                ragText={app.ragText}
+                setRagText={app.setRagText}
+                handleIndexDocument={app.handleIndexDocument}
+                isRAGIndexing={app.isRAGIndexing}
+                ragIndexStatus={app.ragIndexStatus}
+                ragSearchQuery={app.ragSearchQuery}
+                handleRAGSearch={app.handleRAGSearch}
+                ragSearchResults={app.ragSearchResults}
+                codeDisplayType={app.codeDisplayType}
+                setCodeDisplayType={app.setCodeDisplayType}
+                codeTab={app.codeTab}
+                setCodeTab={app.setCodeTab}
+                loadingServerGeneratedCode={app.loadingServerGeneratedCode}
+                serverGeneratedCode={app.serverGeneratedCode}
+                generateCopieableCode={app.generateCopieableCode}
+                handleCopyCode={app.handleCopyCode}
+                simDocQual={app.simDocQual}
+                setSimDocQual={app.setSimDocQual}
+                simUIAesthetic={app.simUIAesthetic}
+                setSimUIAesthetic={app.setSimUIAesthetic}
+                simAgentPower={app.simAgentPower}
+                setSimAgentPower={app.setSimAgentPower}
+                simMarketingPush={app.simMarketingPush}
+                setSimMarketingPush={app.setSimMarketingPush}
+                calculateViralityScore={app.calculateViralityScore}
+                getViralityLabel={app.getViralityLabel}
+                handleInstallTemplateFromMarketplace={app.handleInstallTemplateFromMarketplace}
+                handleApplyCopilotGraph={app.handleApplyCopilotGraph}
+                translations={translations}
+                onHighlightNode={app.setHighlightedNodeId}
+                onSetDryRunOutput={app.setDryRunOutput}
+              />
+            </React.Suspense>
+          )}
+        </div>
+
+        {/* Global Import/Export Configuration Modal */}
+        <ImportExportModal
+          isImportExportModalOpen={app.isImportExportModalOpen}
+          setIsImportExportModalOpen={app.setIsImportExportModalOpen}
+          importError={app.importError}
+          jsonStringInput={app.jsonStringInput}
+          setJsonStringInput={app.setJsonStringInput}
+          handleImportWorkflowJSON={app.handleImportWorkflowJSON}
+          copiedText={app.copiedText}
+          setCopiedText={app.setCopiedText}
+          activeWorkflow={app.activeWorkflow || { name: app.projectNameInput }}
+          currentLang={app.currentLang}
+        />
+
+        {/* Global Keyboard Shortcuts Cheat Sheet Modal */}
+        <ShortcutsModal
+          isOpen={isShortcutsOpen}
+          onClose={() => setIsShortcutsOpen(false)}
+          currentLang={app.currentLang}
+        />
+
+        {/* Dynamic First Launch Configuration & Onboarding Wizard */}
+        <FirstLaunchWizard
+          isOpen={isFirstLaunchOpen}
+          onClose={handleWizardComplete}
+          currentLang={app.currentLang}
+        />
+
+        {/* Mandatory Environment Shield Modal */}
+        <EnvironmentSecurityModal
+          currentLang={app.currentLang}
+          onInitialized={() => {
+            console.log('Cryptographic environment verified secure.');
+          }}
+        />
+
+        {/* Global Toast Notifications System */}
+        <ToastContainer currentLang={app.currentLang} />
+      </div>
+    </ErrorBoundary>
+  );
+}

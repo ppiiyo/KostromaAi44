@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # 1. Frontend Web Service (Reverse Proxy & Static Asset server)
+  kostromai44-frontend:
+    image: kostromai44-frontend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: kostromai44-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      kostromai44-backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 2. Backend REST & WebSocket API Service
+  kostromai44-backend:
+    image: kostromai44-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: kostromai44-backend
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_TYPE=postgres
+      - DATABASE_URL=postgres://kostromai44:${POSTGRES_PASSWORD}@kostromai44-db:5432/kostromai44_db
+      - REDIS_URL=redis://kostromai44-redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://localhost:11434}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - AGENTFORGE_API_KEY=${AGENTFORGE_API_KEY:-}
+    volumes:
+      - kostromai44-projects:/usr/src/app/projects
+    depends_on:
+      kostromai44-db:
+        condition: service_healthy
+      kostromai44-redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+    restart: unless-stopped
+
+  # 3. Independent Pipeline Execution Worker (Scale out as needed)
+  kostromai44-executor:
+    image: kostromai44-executor:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.executor
+    container_name: kostromai44-executor
+    environment:
+      - NODE_ENV=production
+      - DB_TYPE=postgres
+      - DATABASE_URL=postgres://kostromai44:${POSTGRES_PASSWORD}@kostromai44-db:5432/kostromai44_db
+      - REDIS_URL=redis://kostromai44-redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://localhost:11434}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - AGENTFORGE_API_KEY=${AGENTFORGE_API_KEY:-}
+    volumes:
+      - kostromai44-projects:/usr/src/app/projects
+    depends_on:
+      kostromai44-db:
+        condition: service_healthy
+      kostromai44-redis:
+        condition: service_started
+    restart: unless-stopped
+
+  # 4. Redis Queue & Cache Backend
+  kostromai44-redis:
+    image: redis:7-alpine
+    container_name: kostromai44-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  # 5. PostgreSQL Database
+  kostromai44-db:
+    image: postgres:15-alpine
+    container_name: kostromai44-db
+    environment:
+      - POSTGRES_USER=kostromai44
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=kostromai44_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kostromai44 -d kostromai44_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  kostromai44-projects:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local

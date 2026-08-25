@@ -1,0 +1,220 @@
+import express from 'express';
+import path from 'path';
+import dotenv from 'dotenv';
+import fs from 'fs';
+import compression from 'compression';
+import { corsMiddleware } from './src/middleware/cors.js';
+import { setupSecurity } from './src/middleware/security.js';
+import { sanitizeRequestBody } from './src/middleware/sanitize.js';
+import schedulerAndWebhooksRouter from './src/api/schedulerAndWebhooks.js';
+import copilotRouter from './src/api/copilot.js';
+import { tieredRateLimiter } from './src/middleware/rateLimit.js';
+import { correlationIdMiddleware } from './src/middleware/correlationId.js';
+import { createHealthRoutes } from './src/api/healthRoutes.js';
+import { errorHandler } from './src/middleware/errorHandler.js';
+import { GracefulShutdown } from './src/services/gracefulShutdown.js';
+import { adapter } from './src/db/index.js';
+import { validateDatabaseConfig } from './src/api/db.js';
+import { validateSecrets } from './src/config/secrets.js';
+import { runMigrationsWithLock } from './src/db/migrations.js';
+import * as Sentry from '@sentry/node';
+import { CollaborationServer } from './src/api/collaboration.js';
+import { logger } from './src/utils/logger.js';
+import { setupSwagger } from './src/api/swagger.js';
+import { register } from './src/services/metrics.js';
+import { initTracing } from './src/services/tracing.js';
+import authRoutes, { authMiddleware } from './src/api/authRoutes.js';
+import { oidcRouter } from './src/auth/oidc.js';
+import projectsRouter from './src/api/projectsRoutes.js';
+import graphsRouter from './src/api/graphsRoutes.js';
+import executeRouter from './src/api/executeRoutes.js';
+import marketplaceRouter from './src/api/marketplaceRoutes.js';
+import deploymentRouter from './src/api/deploymentRoutes.js';
+import mcpRouter from './src/api/mcpRoutes.js';
+import metricsRouter from './src/api/metricsRoutes.js';
+import githubRouter from './src/api/githubRoutes.js';
+import ragRouter from './src/api/ragRoutes.js';
+import patternsRouter from './src/api/patternsRoutes.js';
+import diagnosticsRouter from './src/api/diagnosticsRoutes.js';
+import { enterpriseTenantContext } from './src/middleware/tenantIsolation.js';
+import { unifiedGuardMiddleware } from './src/middleware/guard.js';
+import { runStartupEnvCheck } from './src/config/envValidator.js';
+
+dotenv.config();
+
+logger.info('🚀 KostromAi44 backend starting...');
+logger.info(`Node.js ${process.version}`);
+logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+// Run robust environment validation startup check
+runStartupEnvCheck();
+
+// Pre-flight database and secrets credential validation
+try {
+  validateSecrets();
+} catch (error: any) {
+  logger.warn(`SECRETS CONFIGURATION WARNING: ${error.message}`);
+}
+
+try {
+  validateDatabaseConfig(process.env.DB_TYPE || 'sqlite', process.env.DATABASE_URL || '');
+} catch (error: any) {
+  logger.warn(`DATABASE CONFIGURATION WARNING: ${error.message}. Defaulting DB_TYPE to "sqlite" and falling back gracefully.`);
+  process.env.DB_TYPE = 'sqlite';
+}
+
+initTracing();
+
+if (process.env.SENTRY_DSN && process.env.SENTRY_DSN !== 'your_sentry_dsn_here' && process.env.SENTRY_DSN.startsWith('http')) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    tracesSampleRate: 1.0,
+  });
+}
+
+const PROJECTS_DIR = path.join(process.cwd(), 'projects');
+if (!fs.existsSync(PROJECTS_DIR)) {
+  fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+}
+
+export const app = express();
+app.use(compression());
+app.set('trust proxy', process.env.TRUST_PROXY || 1);
+const PORT = parseInt(process.env.PORT ?? '3000', 10);
+
+let isReady = false;
+
+app.use(corsMiddleware);
+app.use(correlationIdMiddleware);
+
+// Liveness — ALWAYS 200 while process is alive (tests + legacy /api/health)
+app.get(['/healthz', '/api/healthz', '/api/health', '/api/v1/health'], (_req: express.Request, res: express.Response) => {
+  res.status(200).json({ status: 'ok', ready: isReady, uptime: process.uptime() });
+});
+
+// Readiness — 503 until migrations complete (compose healthcheck + smoke test)
+app.get(['/readyz', '/api/readyz'], (_req: express.Request, res: express.Response) => {
+  if (!isReady) {
+    return res.status(503).json({ status: 'starting' });
+  }
+  res.status(200).json({ status: 'ready', uptime: process.uptime() });
+});
+
+setupSecurity(app);
+
+app.use((req, _res, next) => {
+  logger.info(`${req.method} ${req.url} - IP: ${req.ip}`);
+  next();
+});
+
+app.use(['/api', '/api/v1'], tieredRateLimiter);
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(sanitizeRequestBody);
+
+app.use(['/api', '/api/v1'], unifiedGuardMiddleware);
+app.use(['/api', '/api/v1'], enterpriseTenantContext);
+
+// Endpoint for testing request payload limits
+app.post(['/api/test-payload', '/api/v1/test-payload'], (req: express.Request, res: express.Response) => {
+  res.json({ received: true, size: req.body ? JSON.stringify(req.body).length : 0 });
+});
+
+// Setup OpenAPI Documentation
+setupSwagger(app);
+
+// Mount Modular API Routers
+app.get('/metrics', authMiddleware, async (_req: express.Request, res: express.Response) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (err: any) {
+    res.status(500).end(err.message);
+  }
+});
+
+const apiRoutes = [
+  authRoutes,
+  oidcRouter,
+  projectsRouter,
+  graphsRouter,
+  executeRouter,
+  marketplaceRouter,
+  deploymentRouter,
+  mcpRouter,
+  metricsRouter,
+  githubRouter,
+  diagnosticsRouter,
+  ragRouter,
+  patternsRouter,
+  schedulerAndWebhooksRouter,
+  copilotRouter,
+  createHealthRoutes(),
+];
+
+apiRoutes.forEach((router) => {
+  app.use('/api', router);
+  app.use('/api/v1', router);
+});
+
+// Centralized Error Handling Middleware
+app.use(errorHandler);
+
+export async function startServer() {
+  const httpServer = app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`🎯 Server listening on :${PORT}`);
+  });
+
+  // Execute auto-run database table schema migrations with advisory lock
+  try {
+    logger.info('📦 Applying database migrations with advisory lock...');
+    await runMigrationsWithLock(adapter);
+    logger.info('✅ Migrations applied successfully');
+    isReady = true;
+    logger.info('✅ Server is ready to accept traffic');
+  } catch (migErr: any) {
+    logger.error('CRITICAL ERROR: Migrations failed', { error: migErr.message || migErr });
+    process.exit(1);
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: false
+      },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  // Start Socket.io Collaboration Server
+  const collaborationServer = new CollaborationServer(httpServer);
+
+  // Initialize production-grade Graceful Shutdown
+  const shutdownManager = new GracefulShutdown(httpServer, collaborationServer.io, adapter);
+
+  // Register BullMQ dynamic services shutdown hook
+  const { closeQueueSystem } = await import('./src/queue/executionQueue.js');
+  shutdownManager.registerService({
+    name: 'BullMQ Queue System',
+    close: closeQueueSystem
+  });
+}
+
+export const setupServer = startServer;
+
+if (!process.env.VITEST && !process.argv[1]?.includes('safeBootstrap')) {
+  startServer().catch(err => {
+    logger.error("Failed to start server:", { error: err.message || err, stack: err?.stack });
+    process.exit(1);
+  });
+}

@@ -1,0 +1,182 @@
+name: KostromAi44 CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run tmate session on failure to debug'
+        required: false
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HUSKY: '0'
+
+jobs:
+  static-analysis:
+    name: Lint & Dependency Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          timeout-minutes: 5
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Application Dependencies
+        run: npm install --legacy-peer-deps
+        timeout-minutes: 5
+
+      - name: Run Dependency Integrity Check
+        run: bash ./scripts/dependency-integrity-check.sh
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Debug Dependency Failure
+        if: failure()
+        run: |
+          echo "=== Debug Dependency Failure ==="
+          npm list --depth=0 || true
+          df -h
+
+      - name: Run TypeScript Linter Check
+        run: npm run lint
+
+      - name: Run npm audit security scan
+        # Keep audit running but non-blocking on low-level issues
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Setup tmate session for debugging static-analysis on failure
+        if: failure() && github.event_name == 'workflow_dispatch' && inputs.debug_enabled == true
+        uses: mxschmitt/action-tmate@v3
+
+  build-and-test:
+    name: Compile & Run Tests (Node v${{ matrix.node-version }})
+    needs: static-analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        node-version: [22]
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          timeout-minutes: 5
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install Application Dependencies
+        run: npm install --legacy-peer-deps
+        timeout-minutes: 5
+
+      - name: Build Production Bundles
+        run: npm run build
+
+      - name: Run Vitest Unit & Integration Suites with Coverage Gates
+        run: npm run test:coverage
+
+      - name: Setup tmate session for debugging build-and-test on failure
+        if: failure() && github.event_name == 'workflow_dispatch' && inputs.debug_enabled == true
+        uses: mxschmitt/action-tmate@v3
+
+  e2e-tests:
+    name: Run Playwright E2E Tests
+    needs: static-analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: agentforge_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          timeout-minutes: 5
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Application Dependencies
+        run: npm install --legacy-peer-deps
+        timeout-minutes: 5
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E Tests on PR (Critical Flows Only)
+        if: github.event_name == 'pull_request'
+        run: npm run test:e2e -- --grep "1\."
+        env:
+          NODE_ENV: test
+          DB_TYPE: postgres
+          DATABASE_URL: postgres://test_user:test_password@localhost:5432/agentforge_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: supersecretjwtkeymustbe32charslong!
+          ENCRYPTION_MASTER_KEY: supersecretencryptionkeymustbe32chars!
+
+      - name: Run Full E2E Test Suite on Main Merge
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        run: npm run test:e2e
+        env:
+          NODE_ENV: test
+          DB_TYPE: postgres
+          DATABASE_URL: postgres://test_user:test_password@localhost:5432/agentforge_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: supersecretjwtkeymustbe32charslong!
+          ENCRYPTION_MASTER_KEY: supersecretencryptionkeymustbe32chars!
+
+      - name: Upload Playwright Test Report & Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+

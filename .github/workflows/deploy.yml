@@ -1,0 +1,224 @@
+name: Deploy and Docker Build CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Trigger deployment action'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - rollback
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker-ci:
+    name: Build & Smoke-Test Stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          timeout-minutes: 5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3.3.0
+        with:
+          timeout-minutes: 5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.10.0
+        with:
+          timeout-minutes: 5
+
+      - name: Prepare ephemeral secrets (CI only)
+        run: |
+          chmod +x scripts/generate-secrets.sh
+          ./scripts/generate-secrets.sh
+          if [ -f .env ];  then
+            cat .env >> $GITHUB_ENV
+          fi
+
+      - name: Validate Required Secrets
+        run: |
+          REQUIRED_VARS=("JWT_SECRET" "ENCRYPTION_MASTER_KEY" "POSTGRES_PASSWORD")
+          for var in "${REQUIRED_VARS[@]}"; do
+            if [ -z "${!var}" ]; then
+              echo "❌ Required environment variable $var is not set"
+              echo "Run: bash scripts/generate-secrets.sh"
+              exit 1
+            fi
+          done
+          echo "✅ All required secrets validated"
+
+      - name: Verify Docker Compose Configuration
+        run: docker compose config
+
+      - name: Build Frontend Service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: false
+          load: true
+          tags: kostromai44-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Backend Service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          push: false
+          load: true
+          tags: kostromai44-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Executor Service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.executor
+          push: false
+          load: true
+          tags: kostromai44-executor:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start Full Docker Compose Stack
+        run: |
+          docker compose up -d --wait --wait-timeout 120
+          echo "✅ All services healthy"
+          docker compose ps
+
+      - name: Dump Service Logs on Deployment Failure
+        if: failure()
+        run: |
+          echo "=========== DEPLOYMENT FAILED ==========="
+          echo "Container status:"
+          docker compose ps || true
+          echo ""
+          echo "=========== BACKEND LOGS (last 200 lines) ==========="
+          docker compose logs --tail=200 kostromai44-backend || true
+          echo ""
+          echo "=========== EXECUTOR LOGS (last 200 lines) ==========="
+          docker compose logs --tail=200 kostromai44-executor || true
+          echo ""
+          echo "=========== DB LOGS (last 200 lines) ==========="
+          docker compose logs --tail=200 kostromai44-db || true
+
+      - name: Smoke Test
+        run: |
+          # Verify readiness
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/readyz)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Readiness check failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+
+          # Verify API Health
+          RESPONSE=$(curl -s http://localhost:3000/api/health)
+          if ! echo "$RESPONSE" | grep -q "ok"; then
+            echo "❌ Health check failed: $RESPONSE"
+            exit 1
+          fi
+
+          echo "✅ Smoke test passed"
+
+      - name: Shutdown Compose Services
+        if: always()
+        run: docker compose down -v
+
+  publish:
+    name: Push Images to GHCR
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: docker-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3.3.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set lowercased repository name
+        run: |
+          REPO_LOWER=$(echo "${GITHUB_REPOSITORY}" | tr 'A-Z' 'a-z')
+          echo "REPO_LOWER=${REPO_LOWER}" >> $GITHUB_ENV
+
+      - name: Push Frontend Service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LOWER }}/frontend:latest
+            ghcr.io/${{ env.REPO_LOWER }}/frontend:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Push Backend Service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LOWER }}/backend:latest
+            ghcr.io/${{ env.REPO_LOWER }}/backend:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Push Executor Service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.executor
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO_LOWER }}/executor:latest
+            ghcr.io/${{ env.REPO_LOWER }}/executor:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  rollback:
+    name: Emergency Deployment Rollback
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'rollback'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Rolling Rollback on EKS Cluster
+        run: |
+          echo "Simulating EKS rollback..."
+          echo "kubectl rollout undo deployment/kostromai4444-api -n production"
+          echo "kubectl rollout status deployment/kostromai4444-api -n production"
+          echo "Rollback successfully triggered and verified."

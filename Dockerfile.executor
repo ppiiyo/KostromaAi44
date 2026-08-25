@@ -1,0 +1,58 @@
+# --- Stage 1: Build Executor Worker ---
+FROM node:22-slim AS builder
+
+WORKDIR /usr/src/app
+
+# Define build-time environment variables (default to development to ensure devDependencies are installed)
+ARG NODE_ENV=development
+ENV NODE_ENV=${NODE_ENV}
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    gcc \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+ENV PYTHON=/usr/bin/python3
+RUN npm ci --include=dev --legacy-peer-deps
+
+COPY . .
+
+# Generate migrations, Swagger documentation, and bundle the worker with esbuild
+RUN npx drizzle-kit generate && \
+    npx drizzle-kit generate --config=drizzle-postgres.config.ts && \
+    npx esbuild src/queue/worker-entry.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/worker.cjs
+
+# --- Stage 2: Production Worker Container ---
+FROM node:22-slim AS runner
+
+WORKDIR /usr/src/app
+
+ARG NODE_ENV=production
+ENV NODE_ENV=${NODE_ENV}
+
+# Copy compiled bundles, manifests, and migrations
+COPY --from=builder /usr/src/app/dist/worker.cjs ./dist/worker.cjs
+COPY --from=builder /usr/src/app/dist/worker.cjs.map ./dist/worker.cjs.map
+COPY --from=builder /usr/src/app/package.json /usr/src/app/package-lock.json ./
+COPY --from=builder /usr/src/app/node_modules ./node_modules
+COPY --from=builder /usr/src/app/drizzle ./drizzle
+COPY --from=builder /usr/src/app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=builder /usr/src/app/drizzle-postgres.config.ts ./drizzle-postgres.config.ts
+COPY --from=builder /usr/src/app/drizzle.config.json ./drizzle.config.json
+COPY --from=builder /usr/src/app/tsconfig.json ./tsconfig.json
+COPY --from=builder /usr/src/app/vite.config.ts ./vite.config.ts
+COPY --from=builder /usr/src/app/server.ts ./server.ts
+COPY --from=builder /usr/src/app/src ./src
+
+# Create storage directory for local project configurations
+RUN mkdir -p projects && chown -R node:node /usr/src/app
+
+USER node
+
+# Start the standalone queue executor worker
+CMD ["node", "dist/worker.cjs"]
