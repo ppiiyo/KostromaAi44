@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           timeout-minutes: 5
 
@@ -78,7 +78,7 @@ jobs:
         node-version: [22]
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           timeout-minutes: 5
 
@@ -132,7 +132,7 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           timeout-minutes: 5
 
