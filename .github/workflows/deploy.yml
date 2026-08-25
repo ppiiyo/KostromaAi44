@@ -70,7 +70,7 @@ jobs:
         run: docker compose config
 
       - name: Build Frontend Service
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.frontend
@@ -81,7 +81,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build Backend Service
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.backend
@@ -92,7 +92,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build Executor Service
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.executor
@@ -176,7 +176,7 @@ jobs:
           echo "REPO_LOWER=${REPO_LOWER}" >> $GITHUB_ENV
 
       - name: Push Frontend Service
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.frontend
@@ -188,7 +188,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Push Backend Service
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.backend
@@ -200,7 +200,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Push Executor Service
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.executor
