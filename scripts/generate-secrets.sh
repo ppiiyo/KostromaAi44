@@ -3,14 +3,14 @@ set -euo pipefail
 
 echo "🔐 Generating production secrets..."
 
-# JWT Secret (48 bytes = 64 chars base64)
-export JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+# JWT Secret (32 bytes = 64 hex chars, URL & sed safe)
+export JWT_SECRET=$(openssl rand -hex 32 | tr -d '\n')
 
-# Encryption Master Key (32 bytes hex)
+# Encryption Master Key (32 bytes = 64 hex chars)
 export ENCRYPTION_MASTER_KEY=$(openssl rand -hex 32 | tr -d '\n')
 
-# PostgreSQL Password
-export POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')
+# PostgreSQL Password (24 bytes = 48 hex chars, URL-safe for DATABASE_URL)
+export POSTGRES_PASSWORD=$(openssl rand -hex 24 | tr -d '\n')
 
 # Touch .env if it doesn't exist
 touch .env

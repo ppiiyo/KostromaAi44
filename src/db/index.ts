@@ -142,6 +142,7 @@ export const tables = {
   deployments: dbType === 'postgres' ? pgSchema.deployments : sqliteSchema.deployments,
   apiKeys: dbType === 'postgres' ? pgSchema.apiKeys : sqliteSchema.apiKeys,
   pipelineRuns: dbType === 'postgres' ? pgSchema.pipelineRuns : sqliteSchema.pipelineRuns,
+  llmUsage: dbType === 'postgres' ? pgSchema.llmUsage : sqliteSchema.llmUsage,
 };
 
 // Export raw driver instance for legacy components

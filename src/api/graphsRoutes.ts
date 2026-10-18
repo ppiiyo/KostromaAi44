@@ -526,6 +526,30 @@ router.post('/graphs/:id/rollback/:versionId', async (req: Request, res: Respons
   }
 });
 
+router.post('/graphs/:id/version-save', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id ?? '';
+    const { author, commitMessage } = req.body || {};
+    const { saveGraphVersion } = await import('../services/graphService.js');
+    const saved = await saveGraphVersion(id, author || 'system', commitMessage || 'Manual version save');
+    res.status(201).json({ success: true, ...saved });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/graphs/:id/version-restore/:versionNumber', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id ?? '';
+    const versionNumber = parseInt(req.params.versionNumber ?? '1', 10);
+    const { restoreGraphVersion } = await import('../services/graphService.js');
+    const restored = await restoreGraphVersion(id, versionNumber);
+    res.json({ success: true, ...restored });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /**
  * @swagger
  * /api/graphs/{id}/diff:

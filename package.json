@@ -29,6 +29,7 @@
     "test:load:soak": "k6 run src/tests/load/soak.load.js",
     "test:load:all": "npm run test:load && npm run test:load:stress && npm run test:load:soak",
     "lint": "eslint src && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,md}\"",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",

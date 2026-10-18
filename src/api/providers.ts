@@ -124,6 +124,22 @@ export abstract class LLMProvider {
       await recordUserUsage(userId, estInputTokens + estOutputTokens);
     }
 
+    try {
+      const { trackLLMCost } = await import("../services/costTracker.js");
+      const estOutputTokens = Math.ceil((response?.text || "").length / 4);
+      const rawProvider = this.getName().split(" ")[0]?.toLowerCase() || "gemini";
+      await trackLLMCost(
+        null,
+        null,
+        rawProvider,
+        (this as any).model || "unknown",
+        estInputTokens,
+        estOutputTokens
+      );
+    } catch (_costErr) {
+      // Non-blocking cost tracking
+    }
+
     return response;
   }
 }
@@ -147,7 +163,7 @@ export class GeminiProvider extends LLMProvider {
       model = DEFAULT_MODELS.gemini;
     }
 
-    this.ai = new GoogleGenAI({ apiKey });
+    this.ai = new GoogleGenAI({ apiKey: apiKey || "sandbox_unconfigured" });
     this.model = model;
   }
 
